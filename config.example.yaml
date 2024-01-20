@@ -1,0 +1,16 @@
+bot:
+  token: "MTE2Nzk0Njk1ODc4NzMyMTg5Ng.GmETrY.ITn8kSxH37qVmUmHVjAHz7bKvP37GPzH6pTFG0"
+  allowedIds: ["123123"]
+
+  status:
+    # messages go in order from first -> last
+    messages: ["educational purpose by ametysti xD"]
+
+  raid:
+    # delay * time.Millisecond 
+    messageDelay: 100
+    channels:
+     name: 'neekeri'
+     amount: 30
+
+    messages: ["test", "this", "on", "your", "servers", "only"]
