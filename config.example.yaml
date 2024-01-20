@@ -1,5 +1,5 @@
 bot:
-  token: "MTE2Nzk0Njk1ODc4NzMyMTg5Ng.GmETrY.ITn8kSxH37qVmUmHVjAHz7bKvP37GPzH6pTFG0"
+  token: ""
   allowedIds: ["123123"]
 
   status:
