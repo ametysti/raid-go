@@ -7,8 +7,11 @@ bot:
     messages: ["educational purpose by ametysti xD"]
 
   raid:
-    # delay * time.Millisecond 
+    # delay * time.Millisecond
     messageDelay: 100
+    guildEditDelay: 2000
+    channelEditDelay: 4000
+
     channels:
      name: 'neekeri'
      amount: 30
