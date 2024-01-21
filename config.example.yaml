@@ -1,19 +1,33 @@
 bot:
   token: ""
-  allowedIds: ["123123"]
+  # not functional yet 
+  allowedIds: ["1312313", "1312313"]
 
   status:
     # messages go in order from first -> last
-    messages: ["educational purpose by ametysti xD"]
+    messages: ["shit", "raided by .gg/invite etc etc"]
+
 
   raid:
-    # delay * time.Millisecond
-    messageDelay: 100
-    guildEditDelay: 2000
-    channelEditDelay: 4000
+    #messages to send to each channel created
+    messages: ["raided by me", "raided =)"]
+    # delay * time.Millisecond 
+    messageDelay: 200
 
+    guildEdit:
+      enable: true
+      names: ["shit server", "Server 123"]
+      delay: 1
+    
     channels:
-     name: 'neekeri'
-     amount: 30
+      names: ['neekeri', 'tussuhuora', 'fallen-society', 'yleinen', 'media', 'announcements']
+      amount: 20
+      edit:
+        enabled: true
+        delay: 4000
 
-    messages: ["test", "this", "on", "your", "servers", "only"]
+    roles:
+      enable: true
+      names: ['Role', 'a faggot was here', 'Admin', 'Owner', 'Moderator']
+      amount: 100
+      delay: 1
