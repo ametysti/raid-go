@@ -1,7 +1,8 @@
 bot:
   token: ""
-  # not functional yet 
   allowedIds: ["1312313", "1312313"]
+
+  prefix: "?"
 
   status:
     # messages go in order from first -> last
@@ -22,6 +23,7 @@ bot:
     channels:
       names: ['neekeri', 'tussuhuora', 'fallen-society', 'yleinen', 'media', 'announcements']
       amount: 20
+      waitForCreation: true # waits that all channels are created, then starts spamming. If you want it to spam straight away while still making channels, turn this off
       edit:
         enabled: true
         delay: 4000

